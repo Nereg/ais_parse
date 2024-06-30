@@ -3,6 +3,7 @@ import getpass
 import logging
 import sys
 from dataclasses import dataclass
+from enum import Enum
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -19,7 +20,31 @@ class Subject:
     garant_name: str
 
 
+class SemesterType(Enum):
+    ZS = (0,)
+    LS = 1
+
+
+@dataclass
+class Semester:
+    faculty: int
+    id: int
+    type: SemesterType
+    yearStart: int
+    yearEnd: int
+
+
+@dataclass
+class Faculty:
+    id: int
+    name: str
+    # abbreviation: str
+
+
 async def interactive_login(session: aiohttp.ClientSession):
+    """
+    Prompts the user for his login and password, then uses them to login into the system
+    """
     login = str(input("Login: "))
     password = getpass.getpass()
     login_struct = {
@@ -44,12 +69,17 @@ async def interactive_login(session: aiohttp.ClientSession):
 
 
 def separate_terms(arr: list):
+    """
+    Parses however many terms there were to pass a subject (RT, OT, OT2 ...)
+    """
     result: list = []
     arr_len = len(arr)
+    # if we have X amount if terms with A, B, C, D, E, FX:
     if not arr_len % 6:
         logging.debug(f"Got {arr_len} marks and {int(arr_len/6)} terms")
         for i, el in enumerate(arr):
             if not i % 6:
+                #
                 result.append([])
             result[i // 6].append(el)
             # logging.debug([i, i % 6, result])
@@ -69,6 +99,9 @@ def fix_array(arr):
 
 
 async def parse_stats_page(session: aiohttp.ClientSession):
+    """
+    Parses the page displaying results of a subject
+    """
     page_request = await session.get(
         "/auth/student/hodnoceni.pl?fakulta=70;obdobi=665;odkud=;program=0;predmet=393372;pismeno=;lang=sk"
     )
@@ -82,9 +115,16 @@ async def parse_stats_page(session: aiohttp.ClientSession):
     return separate_terms(fix_array(cells))
 
 
-async def parse_term_page(session: aiohttp.ClientSession) -> list[Subject]:
-    results = []
-    return results
+async def get_faculties(session: aiohttp.ClientSession):  # -> list[Faculty]:
+    """
+    Parses the main page, to get the list of all faculties
+    """
+    request = await session.get("/auth/student/hodnoceni.pl")
+    parsed = BeautifulSoup(await request.text(), features="html.parser")
+    table = parsed.find("table")
+    cells = table.find_all("td", class_="odsazena", attrs={"valign": "top"})
+    logging.debug(table)
+    logging.debug(cells)
 
 
 async def main():
@@ -93,14 +133,17 @@ async def main():
         level=logging.DEBUG,
         format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
     )
-    logging.debug("Test")
+    # logging.debug("Test")
+    # set the base URL for my uni's information system
     session: aiohttp.ClientSession = aiohttp.ClientSession(
         base_url="https://is.stuba.sk"
     )
+    # get the user to login
     await interactive_login(session)
+    await get_faculties(session)
+    # testing the stats page parser
     logging.info(await parse_stats_page(session))
     await session.close()
-    pass
 
 
 asyncio.run(main())
